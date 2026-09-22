@@ -1,443 +1,1002 @@
-(function() {
-"use strict";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 
-  // ---------- config ----------
-  var QUESTION_TIME_MS = 15000;
-  var REVEAL_TIME_MS = 5500;
-  var QUESTIONS = [
-    { cat: "Science", q: "What is the largest planet in our solar system?", options: ["Saturn", "Jupiter", "Neptune", "Earth"], correct: 1 },
-    { cat: "Art", q: "Who painted the Mona Lisa?", options: ["Michelangelo", "Raphael", "Leonardo da Vinci", "Donatello"], correct: 2 },
-    { cat: "Geography", q: "Which ocean is the largest by area?", options: ["Atlantic", "Indian", "Arctic", "Pacific"], correct: 3 },
-    { cat: "Music", q: "How many strings does a standard guitar have?", options: ["4", "5", "6", "7"], correct: 2 },
-    { cat: "History", q: "In what year did the Titanic sink?", options: ["1905", "1912", "1920", "1931"], correct: 1 },
-    { cat: "Chemistry", q: "What is the chemical symbol for gold?", options: ["Ag", "Go", "Au", "Gd"], correct: 2 },
-    { cat: "Geography", q: "What is the tallest mountain in the world?", options: ["K2", "Kilimanjaro", "Denali", "Mount Everest"], correct: 3 },
-    { cat: "Math", q: "What is the smallest prime number?", options: ["0", "1", "2", "3"], correct: 2 }
-  ];
-  var LETTERS = ["A", "B", "C", "D"];
+import {
+  getDatabase,
+  ref,
+  set,
+  get,
+  update,
+  onValue,
+  remove,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
 
-  // ---------- state ----------
-  var db = null;
-  var playerId = null;
-  var playerName = "";
-  var roomCode = null;
-  var isHost = false;
-  var roomUnsub = null;
-  var answersUnsub = null;
-  var latestRoom = null;
-  var latestAnswers = {};
-  var hostTimerInterval = null;
-  var revealTimeout = null;
-  var myPick = null;
-  var currentQIndexRendered = -1;
-  var currentStatusRendered = null;
+import {
+  getAuth,
+  signInAnonymously,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 
-  // ---------- persistence helpers ----------
-  function getOrMakePlayerId() {
-    var id = localStorage.getItem("buzzroom_playerId");
-    if (!id) {
-      id = "p" + Math.random().toString(36).slice(2, 10);
-      localStorage.setItem("buzzroom_playerId", id);
-    }
-    return id;
+import { firebaseConfig } from "./firebase-config.js";
+import { questions } from "./questions.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const auth = getAuth(app);
+
+let currentUser = null;
+let currentRoomCode = null;
+let isHost = false;
+let roomData = null;
+let unsubscribeRoom = null;
+let timerInterval = null;
+let hasAnswered = false;
+let advanceInProgress = false;
+
+// Screens
+const homeScreen = document.getElementById("home-screen");
+const lobbyScreen = document.getElementById("lobby-screen");
+const gameScreen = document.getElementById("game-screen");
+const resultsScreen = document.getElementById("results-screen");
+
+// Home
+const playerNameInput = document.getElementById("player-name");
+const roomCodeInput = document.getElementById("room-code-input");
+const hostBtn = document.getElementById("host-btn");
+const joinBtn = document.getElementById("join-btn");
+const homeError = document.getElementById("home-error");
+
+// Lobby
+const roomCodeDisplay = document.getElementById("room-code-display");
+const copyRoomBtn = document.getElementById("copy-room-btn");
+const shareLink = document.getElementById("share-link");
+const playersList = document.getElementById("players-list");
+const hostControls = document.getElementById("host-controls");
+const startGameBtn = document.getElementById("start-game-btn");
+const lobbyMessage = document.getElementById("lobby-message");
+const leaveRoomBtn = document.getElementById("leave-room-btn");
+
+// Game
+const gameRoomCode = document.getElementById("game-room-code");
+const currentQuestionNumber = document.getElementById("current-question-number");
+const timerElement = document.getElementById("timer");
+const progressFill = document.getElementById("progress-fill");
+const questionIndexElement = document.getElementById("question-index");
+const questionText = document.getElementById("question-text");
+const optionsContainer = document.getElementById("options-container");
+const answerStatus = document.getElementById("answer-status");
+const gameLeaderboard = document.getElementById("game-leaderboard");
+
+// Results
+const finalLeaderboard = document.getElementById("final-leaderboard");
+const resultsHostControls = document.getElementById("results-host-controls");
+const playAgainBtn = document.getElementById("play-again-btn");
+const resultsLeaveBtn = document.getElementById("results-leave-btn");
+
+// Loading
+const loadingOverlay = document.getElementById("loading-overlay");
+const loadingText = document.getElementById("loading-text");
+
+
+// -----------------------------
+// Authentication
+// -----------------------------
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    currentUser = user;
+    hideLoading();
+    checkRoomFromUrl();
+  }
+});
+
+signInAnonymously(auth).catch((error) => {
+  console.error("Anonymous authentication failed:", error);
+  hideLoading();
+
+  showHomeError(
+    "Unable to connect to the game server. Please refresh and try again."
+  );
+});
+
+
+// -----------------------------
+// Home
+// -----------------------------
+
+hostBtn.addEventListener("click", createRoom);
+joinBtn.addEventListener("click", joinRoom);
+
+roomCodeInput.addEventListener("input", () => {
+  roomCodeInput.value = roomCodeInput.value
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 4);
+});
+
+roomCodeInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    joinRoom();
+  }
+});
+
+playerNameInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    createRoom();
+  }
+});
+
+
+// -----------------------------
+// Create Room
+// -----------------------------
+
+async function createRoom() {
+  clearHomeError();
+
+  const playerName = playerNameInput.value.trim();
+
+  if (!playerName) {
+    showHomeError("Please enter your name.");
+    playerNameInput.focus();
+    return;
   }
 
-  function randomCode() {
-    var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-    var out = "";
-    for (var i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)];
-    return out;
+  if (!currentUser) {
+    showHomeError("Still connecting. Please try again.");
+    return;
   }
 
-  // ---------- DOM refs ----------
-  var el = {};
-  ["screen-landing","screen-lobby","screen-question","screen-reveal","screen-end",
-   "nameInput","hostBtn","codeInput","joinBtn","landingError",
-   "roomChip","lobbyCodeText","lobbySub","lobbyPlayers","startBtn","lobbyWaitingNote",
-   "qProgress","qCategory","timerFill","qText","qOptions","answeredNote",
-   "revealBig","revealPts","revealScores",
-   "endWinner","endScores","playAgainBtn"
-  ].forEach(function(id){ el[id] = document.getElementById(id); });
+  setLoading("Creating room...");
 
-  function showScreen(name) {
-    ["landing","lobby","question","reveal","end"].forEach(function(s) {
-      document.getElementById("screen-" + s).classList.toggle("hidden", s !== name);
+  try {
+    const roomCode = await generateUniqueRoomCode();
+
+    const roomRef = ref(db, `rooms/${roomCode}`);
+
+    await set(roomRef, {
+      hostId: currentUser.uid,
+      status: "lobby",
+      currentQuestion: -1,
+      questionStartedAt: 0,
+      createdAt: serverTimestamp(),
+
+      players: {
+        [currentUser.uid]: {
+          name: playerName,
+          score: 0,
+          joinedAt: Date.now()
+        }
+      },
+
+      answers: {}
     });
+
+    currentRoomCode = roomCode;
+    isHost = true;
+
+    startRoomListener();
+  } catch (error) {
+    console.error(error);
+    hideLoading();
+    showHomeError("Could not create the room. Please try again.");
+  }
+}
+
+
+// -----------------------------
+// Join Room
+// -----------------------------
+
+async function joinRoom() {
+  clearHomeError();
+
+  const playerName = playerNameInput.value.trim();
+  const roomCode = roomCodeInput.value.trim().toUpperCase();
+
+  if (!playerName) {
+    showHomeError("Please enter your name.");
+    playerNameInput.focus();
+    return;
   }
 
-  // ---------- init ----------
-  async function init() {
-    playerId = getOrMakePlayerId();
-    var savedName = localStorage.getItem("buzzroom_name");
-    if (savedName) el.nameInput.value = savedName;
-
-    try {
-      var capModule = await claude.use("db");
-      db = capModule;
-    } catch (e) {
-      db = null;
-    }
-
-    if (!db) {
-      el.landingError.textContent = "Live sync isn't available in this view — try opening the published link while signed in.";
-    }
-
-    el.hostBtn.addEventListener("click", onHost);
-    el.joinBtn.addEventListener("click", onJoin);
-    el.startBtn.addEventListener("click", onStart);
-    el.playAgainBtn.addEventListener("click", onPlayAgain);
-    el.codeInput.addEventListener("input", function() {
-      el.codeInput.value = el.codeInput.value.toUpperCase().replace(/[^A-Z]/g, "");
-    });
-
-    // rejoin if we have an active room in this browser
-    var savedRoom = sessionStorage.getItem("buzzroom_activeRoom");
-    if (savedRoom && db) {
-      try {
-        var parsed = JSON.parse(savedRoom);
-        enterRoom(parsed.code, parsed.isHost);
-      } catch (e) { /* ignore */ }
-    }
+  if (!/^[A-Z]{4}$/.test(roomCode)) {
+    showHomeError("Please enter a valid 4-letter room code.");
+    roomCodeInput.focus();
+    return;
   }
 
-  function getName() {
-    var n = (el.nameInput.value || "").trim();
-    return n || "Player";
+  if (!currentUser) {
+    showHomeError("Still connecting. Please try again.");
+    return;
   }
 
-  async function onHost() {
-    if (!db) return;
-    playerName = getName();
-    localStorage.setItem("buzzroom_name", playerName);
-    el.hostBtn.disabled = true;
-    try {
-      var code = randomCode();
-      var players = {};
-      players[playerId] = { name: playerName, score: 0 };
-      await db.doc("rooms/" + code).set({
-        code: code,
-        hostId: playerId,
-        status: "lobby",
-        qIndex: 0,
-        questionStartedAt: null,
-        players: players
-      });
-      enterRoom(code, true);
-    } catch (e) {
-      el.landingError.textContent = "Couldn't create a room. Try again.";
-    } finally {
-      el.hostBtn.disabled = false;
-    }
-  }
+  setLoading("Joining room...");
 
-  async function onJoin() {
-    if (!db) return;
-    var code = (el.codeInput.value || "").trim().toUpperCase();
-    if (code.length !== 4) {
-      el.landingError.textContent = "Enter the 4-letter room code.";
+  try {
+    const roomRef = ref(db, `rooms/${roomCode}`);
+    const snapshot = await get(roomRef);
+
+    if (!snapshot.exists()) {
+      hideLoading();
+      showHomeError("Room not found.");
       return;
     }
-    playerName = getName();
-    localStorage.setItem("buzzroom_name", playerName);
-    el.joinBtn.disabled = true;
-    el.landingError.textContent = "";
-    try {
-      var ref = db.doc("rooms/" + code);
-      var snap = await ref.get();
-      if (!snap.exists) {
-        el.landingError.textContent = "No room found with that code.";
-        el.joinBtn.disabled = false;
+
+    const room = snapshot.val();
+
+    if (room.status !== "lobby") {
+      hideLoading();
+      showHomeError("This game has already started.");
+      return;
+    }
+
+    await set(
+      ref(db, `rooms/${roomCode}/players/${currentUser.uid}`),
+      {
+        name: playerName,
+        score: 0,
+        joinedAt: Date.now()
+      }
+    );
+
+    currentRoomCode = roomCode;
+    isHost = false;
+
+    startRoomListener();
+  } catch (error) {
+    console.error(error);
+    hideLoading();
+    showHomeError("Could not join the room. Please try again.");
+  }
+}
+
+
+// -----------------------------
+// Room Listener
+// -----------------------------
+
+function startRoomListener() {
+  if (unsubscribeRoom) {
+    unsubscribeRoom();
+  }
+
+  const roomRef = ref(db, `rooms/${currentRoomCode}`);
+
+  unsubscribeRoom = onValue(
+    roomRef,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        roomData = null;
+        currentRoomCode = null;
+        isHost = false;
+
+        clearTimer();
+        showScreen("home");
+        hideLoading();
+
+        showHomeError("The room no longer exists.");
         return;
       }
-      var data = snap.data();
-      if (data.status !== "lobby") {
-        el.landingError.textContent = "That game has already started.";
-        el.joinBtn.disabled = false;
-        return;
-      }
-      var patch = { players: {} };
-      patch.players[playerId] = { name: playerName, score: 0 };
-      await ref.update(patch);
-      enterRoom(code, data.hostId === playerId);
-    } catch (e) {
-      el.landingError.textContent = "Couldn't join that room. Try again.";
-    } finally {
-      el.joinBtn.disabled = false;
+
+      roomData = snapshot.val();
+
+      hideLoading();
+      updateInterface();
+    },
+    (error) => {
+      console.error("Room listener error:", error);
+      hideLoading();
+      showHomeError("Lost connection to the room.");
     }
+  );
+}
+
+
+// -----------------------------
+// Main Interface
+// -----------------------------
+
+function updateInterface() {
+  if (!roomData) {
+    return;
   }
 
-  function enterRoom(code, host) {
-    roomCode = code;
-    isHost = !!host;
-    sessionStorage.setItem("buzzroom_activeRoom", JSON.stringify({ code: code, isHost: isHost }));
-    el.roomChip.textContent = code;
-    el.roomChip.classList.remove("hidden");
-    subscribeRoom();
+  if (roomData.status === "lobby") {
+    renderLobby();
+    showScreen("lobby");
   }
 
-  function subscribeRoom() {
-    if (roomUnsub) roomUnsub();
-    roomUnsub = db.doc("rooms/" + roomCode).onSnapshot(function(snap) {
-      if (!snap.exists) return;
-      latestRoom = snap.data();
-      renderFromRoom();
-    }, function(err) {
-      // connection issue — leave current screen as-is
-    });
+  if (roomData.status === "question") {
+    renderGame();
+    showScreen("game");
   }
 
-  function subscribeAnswers(qIndex) {
-    if (answersUnsub) { answersUnsub(); answersUnsub = null; }
-    latestAnswers = {};
-    answersUnsub = db.doc("rooms/" + roomCode).collection("answers").doc(String(qIndex)).onSnapshot(function(snap) {
-      latestAnswers = (snap.exists && snap.data()) || {};
-      renderAnsweredProgress();
-      if (isHost) maybeAdvanceFromAnswers();
-    });
+  if (roomData.status === "finished") {
+    renderResults();
+    showScreen("results");
   }
+}
 
-  function playerCount() {
-    return latestRoom && latestRoom.players ? Object.keys(latestRoom.players).length : 0;
-  }
 
-  function renderFromRoom() {
-    if (!latestRoom) return;
-    var status = latestRoom.status;
+// -----------------------------
+// Lobby
+// -----------------------------
 
-    if (status === "lobby") {
-      renderLobby();
-      showScreen("lobby");
-    } else if (status === "question") {
-      if (latestRoom.qIndex !== currentQIndexRendered || currentStatusRendered !== "question") {
-        enterQuestionScreen();
+function renderLobby() {
+  roomCodeDisplay.textContent = currentRoomCode;
+
+  const shareUrl =
+    `${window.location.origin}${window.location.pathname}?room=${currentRoomCode}`;
+
+  shareLink.textContent = shareUrl;
+
+  const players = Object.values(roomData.players || {});
+
+  playersList.innerHTML = "";
+
+  players
+    .sort((a, b) => a.joinedAt - b.joinedAt)
+    .forEach((player) => {
+      const item = document.createElement("div");
+      item.className = "player-item";
+
+      const name = document.createElement("span");
+      name.className = "player-name";
+      name.textContent = player.name;
+
+      const badge = document.createElement("span");
+
+      if (
+        roomData.hostId &&
+        Object.keys(roomData.players || {}).find(
+          (id) => id === roomData.hostId
+        )
+      ) {
+        const playerId = Object.keys(roomData.players).find(
+          (id) => roomData.players[id].name === player.name
+        );
+
+        if (playerId === roomData.hostId) {
+          badge.className = "host-badge";
+          badge.textContent = "HOST";
+        }
       }
-      showScreen("question");
-    } else if (status === "reveal") {
-      if (currentStatusRendered !== "reveal") {
-        enterRevealScreen();
+
+      item.appendChild(name);
+
+      if (badge.textContent) {
+        item.appendChild(badge);
       }
-      showScreen("reveal");
-    } else if (status === "ended") {
-      renderEnd();
-      showScreen("end");
+
+      playersList.appendChild(item);
+    });
+
+  if (isHost) {
+    hostControls.classList.remove("hidden");
+
+    if (players.length < 1) {
+      startGameBtn.disabled = true;
+      lobbyMessage.textContent = "Waiting for players...";
+    } else {
+      startGameBtn.disabled = false;
+      lobbyMessage.textContent =
+        players.length === 1
+          ? "Share the room code to invite players."
+          : `${players.length} players are ready.`;
     }
-    currentStatusRendered = status;
+  } else {
+    hostControls.classList.add("hidden");
+    lobbyMessage.textContent = "Waiting for the host to start the game...";
+  }
+}
+
+
+// -----------------------------
+// Start Game
+// -----------------------------
+
+startGameBtn.addEventListener("click", startGame);
+
+async function startGame() {
+  if (!isHost || !roomData || roomData.status !== "lobby") {
+    return;
   }
 
-  function renderLobby() {
-    el.lobbyCodeText.textContent = roomCode;
-    el.lobbySub.textContent = isHost
-      ? "Share this code with your group, then start whenever you're ready."
-      : "Share this code with your group — the host will start soon.";
-    var players = latestRoom.players || {};
-    var ids = Object.keys(players);
-    el.lobbyPlayers.innerHTML = "";
-    ids.forEach(function(id) {
-      var li = document.createElement("li");
-      li.className = "player-row";
-      var dot = document.createElement("span");
-      dot.className = "dot";
-      li.appendChild(dot);
-      var nameSpan = document.createElement("span");
-      nameSpan.textContent = players[id].name;
-      li.appendChild(nameSpan);
-      if (id === latestRoom.hostId) {
-        var tag = document.createElement("span");
-        tag.className = "host-tag";
-        tag.textContent = "HOST";
-        li.appendChild(tag);
-      }
-      if (id === playerId) {
-        var you = document.createElement("span");
-        you.className = "you-tag";
-        you.textContent = "YOU";
-        li.appendChild(you);
-      }
-      el.lobbyPlayers.appendChild(li);
-    });
-    el.startBtn.classList.toggle("hidden", !isHost);
-    el.startBtn.disabled = ids.length < 1;
-    el.lobbyWaitingNote.classList.toggle("hidden", isHost);
-  }
+  startGameBtn.disabled = true;
 
-  async function onStart() {
-    if (!isHost || !db) return;
-    el.startBtn.disabled = true;
-    await beginQuestion(0);
-  }
-
-  async function beginQuestion(index) {
-    await db.doc("rooms/" + roomCode).update({
+  try {
+    await update(ref(db, `rooms/${currentRoomCode}`), {
       status: "question",
-      qIndex: index,
-      questionStartedAt: Date.now()
+      currentQuestion: 0,
+      questionStartedAt: Date.now(),
+      answers: {}
     });
+  } catch (error) {
+    console.error(error);
+    startGameBtn.disabled = false;
+  }
+}
+
+
+// -----------------------------
+// Game
+// -----------------------------
+
+function renderGame() {
+  const questionNumber = Number(roomData.currentQuestion);
+
+  if (questionNumber < 0 || questionNumber >= questions.length) {
+    return;
   }
 
-  function enterQuestionScreen() {
-    currentQIndexRendered = latestRoom.qIndex;
-    myPick = null;
-    var q = QUESTIONS[latestRoom.qIndex];
-    el.qProgress.textContent = "Question " + (latestRoom.qIndex + 1) + "/" + QUESTIONS.length;
-    el.qCategory.textContent = q.cat;
-    el.qText.textContent = q.q;
-    el.answeredNote.classList.add("hidden");
-    el.qOptions.innerHTML = "";
-    q.options.forEach(function(opt, i) {
-      var btn = document.createElement("button");
-      btn.className = "opt-btn";
-      btn.innerHTML = '<span class="letter">' + LETTERS[i] + '</span><span>' + escapeHtml(opt) + '</span>';
-      btn.addEventListener("click", function() { onPick(i); });
-      el.qOptions.appendChild(btn);
-    });
-    subscribeAnswers(latestRoom.qIndex);
-    runTimer();
-  }
+  const question = questions[questionNumber];
 
-  function runTimer() {
-    if (hostTimerInterval) clearInterval(hostTimerInterval);
-    var started = latestRoom.questionStartedAt || Date.now();
-    function tick() {
-      var elapsed = Date.now() - started;
-      var remain = Math.max(0, 1 - elapsed / QUESTION_TIME_MS);
-      el.timerFill.style.transform = "scaleX(" + remain + ")";
-      if (isHost && elapsed >= QUESTION_TIME_MS && currentStatusRendered === "question") {
-        finishQuestion();
+  gameRoomCode.textContent = currentRoomCode;
+
+  currentQuestionNumber.textContent = `${questionNumber + 1} / ${questions.length}`;
+  questionIndexElement.textContent = `QUESTION ${questionNumber + 1}`;
+  questionText.textContent = question.question;
+
+  progressFill.style.width =
+    `${((questionNumber + 1) / questions.length) * 100}%`;
+
+  renderOptions(question, questionNumber);
+  renderGameLeaderboard();
+
+  startTimer();
+}
+
+
+// -----------------------------
+// Render Options
+// -----------------------------
+
+function renderOptions(question, questionNumber) {
+  optionsContainer.innerHTML = "";
+
+  const myAnswer =
+    roomData.answers &&
+    roomData.answers[currentUser.uid];
+
+  hasAnswered =
+    myAnswer &&
+    Number(myAnswer.questionIndex) === questionNumber;
+
+  question.options.forEach((option, index) => {
+    const button = document.createElement("button");
+
+    button.className = "option-btn";
+    button.textContent = `${String.fromCharCode(65 + index)}. ${option}`;
+
+    if (hasAnswered) {
+      button.disabled = true;
+
+      if (index === Number(myAnswer.answerIndex)) {
+        button.classList.add("selected");
+
+        if (Number(myAnswer.answerIndex) === question.answer) {
+          button.classList.add("correct");
+        } else {
+          button.classList.add("wrong");
+        }
+      }
+
+      if (index === question.answer) {
+        button.classList.add("correct");
       }
     }
-    tick();
-    hostTimerInterval = setInterval(tick, 200);
-  }
 
-  async function onPick(i) {
-    if (myPick !== null) return;
-    myPick = i;
-    Array.prototype.forEach.call(el.qOptions.children, function(btn, idx) {
-      btn.disabled = true;
-      if (idx === i) btn.classList.add("picked");
+    button.addEventListener("click", () => {
+      submitAnswer(index);
     });
-    el.answeredNote.classList.remove("hidden");
-    var ref = db.doc("rooms/" + roomCode).collection("answers").doc(String(latestRoom.qIndex));
-    var patch = {};
-    patch[playerId] = i;
-    try {
-      await ref.update(patch);
-    } catch (e) {
-      try { await ref.set(patch); } catch (e2) { /* give up quietly */ }
+
+    optionsContainer.appendChild(button);
+  });
+
+  if (hasAnswered) {
+    if (myAnswer.correct) {
+      answerStatus.textContent =
+        `Correct! You earned ${myAnswer.points} points.`;
+    } else {
+      answerStatus.textContent = "Wrong answer. Better luck next time!";
     }
+  } else {
+    answerStatus.textContent = "Choose an answer before time runs out.";
+  }
+}
+
+
+// -----------------------------
+// Submit Answer
+// -----------------------------
+
+async function submitAnswer(answerIndex) {
+  if (
+    !roomData ||
+    roomData.status !== "question" ||
+    hasAnswered
+  ) {
+    return;
   }
 
-  function renderAnsweredProgress() {
-    if (document.getElementById("screen-question").classList.contains("hidden")) return;
-    var answeredCount = Object.keys(latestAnswers).length;
-    var total = playerCount();
-    if (myPick !== null) {
-      el.answeredNote.textContent = "You're in! " + answeredCount + "/" + total + " have answered…";
-    }
+  const questionNumber = Number(roomData.currentQuestion);
+  const question = questions[questionNumber];
+
+  const startedAt = Number(roomData.questionStartedAt || Date.now());
+
+  const elapsedSeconds =
+    Math.max(0, Date.now() - startedAt) / 1000;
+
+  const isCorrect = answerIndex === question.answer;
+
+  let points = 0;
+
+  if (isCorrect) {
+    const speedBonus = Math.max(
+      0,
+      Math.round(500 - elapsedSeconds * 40)
+    );
+
+    points = 1000 + speedBonus;
   }
 
-  function maybeAdvanceFromAnswers() {
-    if (!latestRoom || latestRoom.status !== "question") return;
-    var answeredCount = Object.keys(latestAnswers).length;
-    if (answeredCount >= playerCount() && playerCount() > 0) {
-      finishQuestion();
-    }
-  }
+  hasAnswered = true;
 
-  async function finishQuestion() {
-    if (currentStatusRendered !== "question") return;
-    currentStatusRendered = "advancing";
-    if (hostTimerInterval) { clearInterval(hostTimerInterval); hostTimerInterval = null; }
-    var q = QUESTIONS[latestRoom.qIndex];
-    var players = latestRoom.players || {};
-    var scoreUpdates = {};
-    var started = latestRoom.questionStartedAt || Date.now();
-    Object.keys(latestAnswers).forEach(function(pid) {
-      var pick = latestAnswers[pid];
-      if (pick === q.correct && players[pid]) {
-        var elapsedSec = Math.min(QUESTION_TIME_MS, Date.now() - started) / 1000;
-        var speedBonus = Math.max(0, Math.round((1 - elapsedSec / (QUESTION_TIME_MS / 1000)) * 100));
-        var gained = 100 + speedBonus;
-        scoreUpdates[pid] = { score: (players[pid].score || 0) + gained };
+  const currentScore =
+    Number(roomData.players?.[currentUser.uid]?.score || 0);
+
+  const newScore = currentScore + points;
+
+  try {
+    await update(ref(db, `rooms/${currentRoomCode}`), {
+      [`answers/${currentUser.uid}`]: {
+        questionIndex: questionNumber,
+        answerIndex,
+        correct: isCorrect,
+        points,
+        answeredAt: Date.now()
+      },
+
+      [`players/${currentUser.uid}/score`]: newScore
+    });
+
+    answerStatus.textContent = isCorrect
+      ? `Correct! +${points} points`
+      : "Wrong answer.";
+  } catch (error) {
+    console.error(error);
+    hasAnswered = false;
+    answerStatus.textContent =
+      "Could not submit answer. Please try again.";
+  }
+}
+
+
+// -----------------------------
+// Timer
+// -----------------------------
+
+function startTimer() {
+  clearTimer();
+
+  const startedAt = Number(
+    roomData.questionStartedAt || Date.now()
+  );
+
+  updateTimerDisplay(startedAt);
+
+  timerInterval = setInterval(() => {
+    if (!roomData || roomData.status !== "question") {
+      clearTimer();
+      return;
+    }
+
+    updateTimerDisplay(startedAt);
+  }, 100);
+
+  if (isHost) {
+    setTimeout(() => {
+      if (
+        roomData &&
+        roomData.status === "question" &&
+        Number(roomData.currentQuestion) === Number(roomData.currentQuestion)
+      ) {
+        checkAdvance();
       }
-    });
-    var patch = { status: "reveal" };
-    if (Object.keys(scoreUpdates).length) patch.players = scoreUpdates;
-    await db.doc("rooms/" + roomCode).update(patch);
+    }, 10100);
   }
+}
 
-  function enterRevealScreen() {
-    var q = QUESTIONS[latestRoom.qIndex];
-    var iCorrect = myPick === q.correct;
-    el.revealBig.textContent = myPick === null ? "Time's up" : (iCorrect ? "Correct!" : "Not quite");
-    el.revealBig.className = "big " + (myPick === null ? "no" : (iCorrect ? "yes" : "no"));
-    var correctText = q.options[q.correct];
-    el.revealPts.textContent = iCorrect ? "The answer was \u201c" + correctText + "\u201d — nice one." : "The answer was \u201c" + correctText + "\u201d.";
 
-    var players = latestRoom.players || {};
-    var ranked = Object.keys(players).map(function(id) {
-      return { id: id, name: players[id].name, score: players[id].score || 0 };
-    }).sort(function(a, b) { return b.score - a.score; });
+function updateTimerDisplay(startedAt) {
+  const elapsed = (Date.now() - startedAt) / 1000;
+  const remaining = Math.max(0, 10 - elapsed);
 
-    el.revealScores.innerHTML = "";
-    ranked.forEach(function(p, idx) {
-      var li = document.createElement("li");
-      li.className = "score-row" + (idx === 0 ? " top1" : "");
-      li.innerHTML = '<span class="rank">' + (idx + 1) + '</span><span class="name">' + escapeHtml(p.name) + (p.id === playerId ? " (you)" : "") + '</span><span class="pts-val">' + p.score + '</span>';
-      el.revealScores.appendChild(li);
-    });
+  timerElement.textContent = `${remaining.toFixed(1)}s`;
+
+  if (remaining <= 0) {
+    timerElement.textContent = "0.0s";
 
     if (isHost) {
-      if (revealTimeout) clearTimeout(revealTimeout);
-      revealTimeout = setTimeout(function() {
-        var nextIndex = latestRoom.qIndex + 1;
-        if (nextIndex < QUESTIONS.length) {
-          beginQuestion(nextIndex);
-        } else {
-          db.doc("rooms/" + roomCode).update({ status: "ended" });
-        }
-      }, REVEAL_TIME_MS);
+      checkAdvance();
+    }
+  }
+}
+
+
+function clearTimer() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+
+// -----------------------------
+// Advance Question
+// -----------------------------
+
+async function checkAdvance() {
+  if (
+    !isHost ||
+    advanceInProgress ||
+    !roomData ||
+    roomData.status !== "question"
+  ) {
+    return;
+  }
+
+  advanceInProgress = true;
+
+  try {
+    const players = roomData.players || {};
+    const answers = roomData.answers || {};
+
+    const playerIds = Object.keys(players);
+
+    const everyoneAnswered =
+      playerIds.length > 0 &&
+      playerIds.every(
+        (id) =>
+          answers[id] &&
+          Number(answers[id].questionIndex) ===
+            Number(roomData.currentQuestion)
+      );
+
+    const questionNumber = Number(roomData.currentQuestion);
+
+    const timeExpired =
+      Date.now() -
+        Number(roomData.questionStartedAt || Date.now()) >=
+      10000;
+
+    if (!everyoneAnswered && !timeExpired) {
+      advanceInProgress = false;
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    const nextQuestion = questionNumber + 1;
+
+    if (nextQuestion >= questions.length) {
+      await update(ref(db, `rooms/${currentRoomCode}`), {
+        status: "finished"
+      });
+    } else {
+      await update(ref(db, `rooms/${currentRoomCode}`), {
+        status: "question",
+        currentQuestion: nextQuestion,
+        questionStartedAt: Date.now(),
+        answers: {}
+      });
+    }
+  } catch (error) {
+    console.error("Advance error:", error);
+  }
+
+  advanceInProgress = false;
+}
+
+
+// -----------------------------
+// Game Leaderboard
+// -----------------------------
+
+function renderGameLeaderboard() {
+  const players = Object.entries(roomData.players || {});
+
+  players.sort((a, b) => {
+    return Number(b[1].score || 0) - Number(a[1].score || 0);
+  });
+
+  gameLeaderboard.innerHTML = "";
+
+  players.forEach(([id, player], index) => {
+    const row = document.createElement("div");
+    row.className = "leaderboard-row";
+
+    const rank = document.createElement("span");
+    rank.className = "rank";
+    rank.textContent = `${index + 1}.`;
+
+    const name = document.createElement("span");
+    name.className = "leaderboard-player";
+    name.textContent =
+      id === currentUser.uid
+        ? `${player.name} (You)`
+        : player.name;
+
+    const score = document.createElement("span");
+    score.className = "score";
+    score.textContent = `${Number(player.score || 0)} pts`;
+
+    row.appendChild(rank);
+    row.appendChild(name);
+    row.appendChild(score);
+
+    gameLeaderboard.appendChild(row);
+  });
+}
+
+
+// -----------------------------
+// Results
+// -----------------------------
+
+function renderResults() {
+  clearTimer();
+
+  const players = Object.entries(roomData.players || {});
+
+  players.sort((a, b) => {
+    return Number(b[1].score || 0) - Number(a[1].score || 0);
+  });
+
+  finalLeaderboard.innerHTML = "";
+
+  players.forEach(([id, player], index) => {
+    const row = document.createElement("div");
+    row.className = "final-row";
+
+    const rank = document.createElement("span");
+    rank.className = "final-rank";
+
+    if (index === 0) {
+      rank.textContent = "🥇";
+    } else if (index === 1) {
+      rank.textContent = "🥈";
+    } else if (index === 2) {
+      rank.textContent = "🥉";
+    } else {
+      rank.textContent = `${index + 1}`;
+    }
+
+    const name = document.createElement("span");
+    name.className = "final-name";
+    name.textContent =
+      id === currentUser.uid
+        ? `${player.name} (You)`
+        : player.name;
+
+    const score = document.createElement("span");
+    score.className = "final-score";
+    score.textContent = `${Number(player.score || 0)} pts`;
+
+    row.appendChild(rank);
+    row.appendChild(name);
+    row.appendChild(score);
+
+    finalLeaderboard.appendChild(row);
+  });
+
+  if (isHost) {
+    resultsHostControls.classList.remove("hidden");
+  } else {
+    resultsHostControls.classList.add("hidden");
+  }
+}
+
+
+// -----------------------------
+// Play Again
+// -----------------------------
+
+playAgainBtn.addEventListener("click", playAgain);
+
+async function playAgain() {
+  if (!isHost || !roomData) {
+    return;
+  }
+
+  playAgainBtn.disabled = true;
+
+  try {
+    const updates = {
+      status: "question",
+      currentQuestion: 0,
+      questionStartedAt: Date.now(),
+      answers: {}
+    };
+
+    Object.keys(roomData.players || {}).forEach((id) => {
+      updates[`players/${id}/score`] = 0;
+    });
+
+    await update(ref(db, `rooms/${currentRoomCode}`), updates);
+  } catch (error) {
+    console.error(error);
+  }
+
+  playAgainBtn.disabled = false;
+}
+
+
+// -----------------------------
+// Copy Room Link
+// -----------------------------
+
+copyRoomBtn.addEventListener("click", async () => {
+  const shareUrl =
+    `${window.location.origin}${window.location.pathname}?room=${currentRoomCode}`;
+
+  try {
+    await navigator.clipboard.writeText(shareUrl);
+
+    copyRoomBtn.textContent = "Copied!";
+
+    setTimeout(() => {
+      copyRoomBtn.textContent = "Copy Link";
+    }, 1500);
+  } catch (error) {
+    console.error(error);
+  }
+});
+
+
+// -----------------------------
+// Leave Room
+// -----------------------------
+
+leaveRoomBtn.addEventListener("click", leaveRoom);
+resultsLeaveBtn.addEventListener("click", leaveRoom);
+
+async function leaveRoom() {
+  if (!currentRoomCode) {
+    showScreen("home");
+    return;
+  }
+
+  const roomCode = currentRoomCode;
+
+  try {
+    if (isHost) {
+      await remove(ref(db, `rooms/${roomCode}`));
+    } else if (currentUser) {
+      await remove(
+        ref(db, `rooms/${roomCode}/players/${currentUser.uid}`)
+      );
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
+  cleanupRoom();
+
+  window.history.replaceState(
+    {},
+    document.title,
+    window.location.pathname
+  );
+
+  playerNameInput.value = "";
+  roomCodeInput.value = "";
+
+  showScreen("home");
+}
+
+
+// -----------------------------
+// URL Room Code
+// -----------------------------
+
+function checkRoomFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const roomCode = params.get("room");
+
+  if (roomCode) {
+    roomCodeInput.value = roomCode.toUpperCase();
+    playerNameInput.focus();
+  }
+}
+
+
+// -----------------------------
+// Generate Room Code
+// -----------------------------
+
+async function generateUniqueRoomCode() {
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let code = "";
+
+    for (let i = 0; i < 4; i++) {
+      code += letters[Math.floor(Math.random() * letters.length)];
+    }
+
+    const snapshot = await get(ref(db, `rooms/${code}`));
+
+    if (!snapshot.exists()) {
+      return code;
     }
   }
 
-  function renderEnd() {
-    var players = latestRoom.players || {};
-    var ranked = Object.keys(players).map(function(id) {
-      return { id: id, name: players[id].name, score: players[id].score || 0 };
-    }).sort(function(a, b) { return b.score - a.score; });
+  throw new Error("Could not generate room code.");
+}
 
-    el.endWinner.textContent = ranked.length ? (ranked[0].name + " wins! \uD83C\uDFC6") : "Game over";
-    el.endScores.innerHTML = "";
-    ranked.forEach(function(p, idx) {
-      var li = document.createElement("li");
-      li.className = "score-row" + (idx === 0 ? " top1" : "");
-      li.innerHTML = '<span class="rank">' + (idx + 1) + '</span><span class="name">' + escapeHtml(p.name) + (p.id === playerId ? " (you)" : "") + '</span><span class="pts-val">' + p.score + '</span>';
-      el.endScores.appendChild(li);
-    });
+
+// -----------------------------
+// UI Helpers
+// -----------------------------
+
+function showScreen(screen) {
+  homeScreen.classList.remove("active");
+  lobbyScreen.classList.remove("active");
+  gameScreen.classList.remove("active");
+  resultsScreen.classList.remove("active");
+
+  if (screen === "home") {
+    homeScreen.classList.add("active");
   }
 
-  function onPlayAgain() {
-    sessionStorage.removeItem("buzzroom_activeRoom");
-    if (roomUnsub) { roomUnsub(); roomUnsub = null; }
-    if (answersUnsub) { answersUnsub(); answersUnsub = null; }
-    if (hostTimerInterval) { clearInterval(hostTimerInterval); hostTimerInterval = null; }
-    if (revealTimeout) { clearTimeout(revealTimeout); revealTimeout = null; }
-    roomCode = null;
-    isHost = false;
-    latestRoom = null;
-    currentQIndexRendered = -1;
-    currentStatusRendered = null;
-    el.roomChip.classList.add("hidden");
-    el.codeInput.value = "";
-    el.landingError.textContent = "";
-    showScreen("landing");
+  if (screen === "lobby") {
+    lobbyScreen.classList.add("active");
   }
 
-  function escapeHtml(str) {
-    var d = document.createElement("div");
-    d.textContent = str;
-    return d.innerHTML;
+  if (screen === "game") {
+    gameScreen.classList.add("active");
   }
 
-  init();
-})();
+  if (screen === "results") {
+    resultsScreen.classList.add("active");
+  }
+}
+
+
+function setLoading(message) {
+  loadingText.textContent = message;
+  loadingOverlay.classList.remove("hidden");
+}
+
+
+function hideLoading() {
+  loadingOverlay.classList.add("hidden");
+}
+
+
+function showHomeError(message) {
+  homeError.textContent = message;
+}
+
+
+function clearHomeError() {
+  homeError.textContent = "";
+}
+
+
+function cleanupRoom() {
+  clearTimer();
+
+  if (unsubscribeRoom) {
+    unsubscribeRoom();
+    unsubscribeRoom = null;
+  }
+
+  currentRoomCode = null;
+  isHost = false;
+  roomData = null;
+  hasAnswered = false;
+  advanceInProgress = false;
+}

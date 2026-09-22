@@ -1,0 +1,24 @@
+{
+  "name": "buzz-room",
+  "version": "1.0.0",
+  "description": "A live, multiplayer trivia game anyone can join with a 4-letter room code —\r no accounts, no installs. One person hosts, others join from their phone or\r laptop, and everyone's screen stays in sync in real time: questions,\r countdown timer, answer reveals, and a running leaderboard.",
+  "main": "script.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pranshu7489768236/buzz-room.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/pranshu7489768236/buzz-room/issues"
+  },
+  "homepage": "https://github.com/pranshu7489768236/buzz-room#readme",
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  }
+}
