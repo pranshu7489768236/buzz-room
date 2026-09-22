@@ -1,27 +1,24 @@
-import { experience } from "@/lib/content"
+import { education } from "@/lib/content"
 import { SectionHeading } from "@/components/section-heading"
 
-export function Experience() {
+export function Education() {
   return (
-    <section aria-labelledby="experience-heading">
+    <section aria-labelledby="education-heading">
       <SectionHeading>
-        <span id="experience-heading">Experience</span>
+        <span id="education-heading">Education</span>
       </SectionHeading>
       <ul className="flex flex-col divide-y divide-[var(--color-border)]">
-        {experience.map((job) => (
+        {education.map((item) => (
           <li
-            key={`${job.company}-${job.period}`}
+            key={`${item.school}-${item.period}`}
             className="flex flex-col gap-1 py-4 first:pt-0 sm:flex-row sm:items-baseline sm:justify-between"
           >
             <div>
-              <p className="font-medium">{job.company}</p>
-              <p className="text-sm text-[var(--color-muted)]">
-                {job.role}
-                {job.note ? ` · ${job.note}` : ""}
-              </p>
+              <p className="font-medium">{item.degree}</p>
+              <p className="text-sm text-[var(--color-muted)]">{item.school}</p>
             </div>
             <p className="text-sm tabular-nums text-[var(--color-muted)]">
-              {job.period}
+              {item.period}
             </p>
           </li>
         ))}

@@ -26,6 +26,14 @@ export function Contact() {
         >
           GitHub
         </a>
+        <a
+          href={profile.linkedin}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[var(--color-accent)] hover:underline"
+        >
+          LinkedIn
+        </a>
       </div>
     </section>
   )

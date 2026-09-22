@@ -4,54 +4,58 @@
  */
 
 export const profile = {
-  name: "Pranshu",
-  role: "Backend Software Engineer",
+  name: "Pranshu Sen",
+  role: "Java Backend Developer",
   location: "Bangalore, India",
   // A short, plain intro about what you do.
   intro:
-    "Backend Software Engineer with around 5 years of experience building reliable, high-throughput services. Currently at Infosys. I work mostly with Java and Spring Boot, event streaming with Kafka, and data stores like PostgreSQL and Redis — running on Kubernetes and AWS.",
-  // TODO: replace with your real email address.
-  email: "you@example.com",
+    "Java Backend Developer with close to 5 years of experience designing and optimizing backend services and RESTful APIs with Java and Spring Boot. I work across microservices architecture, event streaming with Kafka, cloud-native development on AWS, and SQL/NoSQL data stores like PostgreSQL, MongoDB, and Redis. Currently at Infosys, delivering for Vanguard.",
+  email: "pranshumca@gmail.com",
   github: "https://github.com/pranshu7489768236",
+  linkedin: "https://linkedin.com/in/pranshu-sen-37a63a196",
 }
 
 /** Grouped tech stack. Add, remove, or rename groups and items freely. */
 export const skillGroups: { title: string; items: string[] }[] = [
-  { title: "Languages", items: ["Java"] },
-  { title: "Frameworks", items: ["Spring Boot"] },
-  { title: "Messaging & APIs", items: ["Kafka", "gRPC"] },
-  { title: "Data", items: ["PostgreSQL", "Redis"] },
-  { title: "Infrastructure", items: ["Kubernetes", "AWS"] },
+  { title: "Languages", items: ["Java 8/11", "SQL"] },
+  { title: "Frameworks", items: ["Spring Boot", "Spring MVC", "Spring Security"] },
+  { title: "APIs & Microservices", items: ["RESTful APIs", "Microservices", "JSON"] },
+  { title: "Messaging & Rules", items: ["Apache Kafka", "Drools Rules Engine"] },
+  { title: "Databases", items: ["PostgreSQL", "MongoDB", "Redis"] },
+  { title: "Cloud & DevOps", items: ["AWS", "Docker", "GitHub Actions", "Bamboo", "SonarQube", "Wiz"] },
+  { title: "Testing", items: ["JUnit", "Mockito", "Postman"] },
+  { title: "Version Control", items: ["Git", "GitHub"] },
 ]
 
 /**
  * Work experience. Keep it high-level.
- * NOTE: The years below are placeholders — update them to your real dates.
- * Only companies/roles you mentioned are listed; add earlier roles as needed.
+ * Sourced from your resume — update dates or details as your roles change.
  */
 export const experience: {
   company: string
   role: string
   period: string
+  note?: string
 }[] = [
   {
     company: "Infosys",
-    role: "Backend Software Engineer",
-    period: "20XX – Present",
+    role: "Java Backend Developer",
+    period: "Jul 2025 – Present",
+    note: "Client: Vanguard",
   },
   {
-    company: "Paytm",
-    role: "Backend Software Engineer",
-    period: "20XX – 20XX",
+    company: "Atos",
+    role: "Java Backend Developer",
+    period: "Jun 2022 – Jul 2025",
   },
   {
-    company: "Earlier roles",
-    role: "Backend Software Engineer",
-    period: "20XX – 20XX",
+    company: "NJ Group",
+    role: "Java Backend Developer",
+    period: "Jan 2022 – Jun 2022",
   },
 ]
 
-/** Placeholder projects — swap these out for real ones when you're ready. */
+/** Projects sourced from your resume. Add or edit as needed. */
 export const projects: {
   title: string
   description: string
@@ -59,21 +63,34 @@ export const projects: {
   link?: string
 }[] = [
   {
-    title: "Project One",
+    title: "Vanguard Vulnerability Remediation",
     description:
-      "A short description of what this project does, the problem it solves, and your role in building it.",
-    tags: ["Java", "Spring Boot", "PostgreSQL"],
+      "Enterprise security remediation across Java Spring Boot microservices — diagnosing and resolving CVEs, upgrading dependencies, and maintaining CI/CD quality gates for a major US financial services firm.",
+    tags: ["Java", "Spring Boot", "AWS", "GitHub Actions", "SonarQube"],
   },
   {
-    title: "Project Two",
+    title: "Vulnerability Management System",
     description:
-      "A short description of what this project does, the problem it solves, and your role in building it.",
-    tags: ["Kafka", "Redis", "gRPC"],
+      "Backend security platform to identify, prioritize, and remediate vulnerabilities across enterprise IT environments, with automated risk scoring and event-driven microservices.",
+    tags: ["Spring Boot", "Kafka", "Drools", "Redis", "PostgreSQL", "MongoDB"],
   },
   {
-    title: "Project Three",
+    title: "Investment Portfolio Management Platform",
     description:
-      "A short description of what this project does, the problem it solves, and your role in building it.",
-    tags: ["Kubernetes", "AWS"],
+      "Web-based investment platform enabling financial advisors to manage client portfolios, investment data, and financial reports, secured with Spring Security and JWT.",
+    tags: ["Java", "Spring Boot", "Spring Security", "PostgreSQL", "MongoDB"],
+  },
+]
+
+/** Education, sourced from your resume. */
+export const education: {
+  degree: string
+  school: string
+  period: string
+}[] = [
+  {
+    degree: "Master of Computer Applications (MCA)",
+    school: "RKDF College, Bhopal",
+    period: "Jul 2019 – Jul 2021",
   },
 ]
