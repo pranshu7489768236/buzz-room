@@ -1,24 +1,39 @@
-# Buzz Room
+# Personal Website
 
-A live, multiplayer trivia game anyone can join with a 4-letter room code —
-no accounts, no installs. One person hosts, others join from their phone or
-laptop, and everyone's screen stays in sync in real time: questions,
-countdown timer, answer reveals, and a running leaderboard.
+A simple, minimal one-page personal site built with Next.js (static export) and Tailwind CSS.
 
-## How it works
-- Host creates a room and gets a shareable room code
-- Players join from any device by entering the code and their name
-- The host starts the game; questions and results sync live to every player
-- Speed-based scoring rewards faster correct answers
-- Final leaderboard shows the winner at the end
+## Editing your content
 
-## Tech
-- Single-page vanilla HTML/CSS/JS, no build step
-- Real-time state sync for room, players, questions, and answers
+Almost everything you'll want to change lives in **one file**:
+
+```
+lib/content.ts
+```
+
+There you can update your intro, skills, work experience, projects, and contact
+email — no need to touch the components. Update the `email` field and the
+placeholder years/projects when you're ready.
 
 ## Running locally
-This is a static site — open with any static file server (e.g. VS Code's
-Live Server extension, or `python -m http.server`). Note: the multiplayer
-sync itself depends on a runtime API only available on the published,
-hosted version of this project — locally you'll see the full UI, but
-hosting/joining a room won't sync between devices.
+
+```bash
+npm install
+npm run dev
+```
+
+Then open http://localhost:3000.
+
+## Building
+
+```bash
+npm run build
+```
+
+This produces a fully static site in the `out/` folder.
+
+## Deployment (GitHub Pages)
+
+Pushing to the `main` branch triggers the workflow in
+`.github/workflows/deploy.yml`, which builds the site and deploys it to GitHub
+Pages automatically. In the repo, make sure **Settings → Pages → Source** is set
+to **GitHub Actions**.
